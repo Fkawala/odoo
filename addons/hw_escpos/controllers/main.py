@@ -42,10 +42,11 @@ from datetime import datetime
 datetime.strptime('2012-01-01', '%Y-%m-%d')
 
 class EscposDriver(Thread):
-    def __init__(self):
+    def __init__(self, banned_devices):
         Thread.__init__(self)
         self.queue = Queue()
         self.lock  = Lock()
+        self.banned_devices = banned_devices
         self.status = {'status':'connecting', 'messages':[]}
 
     def connected_usb_devices(self):
@@ -54,9 +55,17 @@ class EscposDriver(Thread):
         # printers can either define bDeviceClass=7, or they can define one of
         # their interfaces with bInterfaceClass=7. This class checks for both.
         class FindUsbClass(object):
-            def __init__(self, usb_class):
+            def __init__(self, usb_class, banned_devices_):
                 self._class = usb_class
+                self.banned_devices = banned_devices_
+
             def __call__(self, device):
+                if (device.idVendor, device.idProduct) in self.banned_devices:
+                    _logger.info("Igonring %s, %s because it belongs to"
+                                 "the list of banned devices",
+                                 hex(device.idVendor),
+                                 hex(device.idProduct))
+                    return False
                 # first, let's check the device
                 if device.bDeviceClass == self._class:
                     return True
@@ -70,7 +79,8 @@ class EscposDriver(Thread):
 
                 return False
 
-        printers = usb.core.find(find_all=True, custom_match=FindUsbClass(7))
+        device_filter = FindUsbClass(7, self.banned_devices)
+        printers = usb.core.find(find_all=True, custom_match=device_filter)
 
         # if no printers are found after this step we will take the
         # first epson or star device we can find.
@@ -363,7 +373,11 @@ class EscposDriver(Thread):
                     +':'+ str(receipt['date']['minute']).zfill(2) )
 
 
-driver = EscposDriver()
+banned_devices = {
+    (0x04f9, 0x2042),
+    (0x04f9, 0x2028)
+}
+driver = EscposDriver(banned_devices)
 
 driver.push_task('printstatus')
 
