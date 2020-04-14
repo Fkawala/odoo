@@ -89,7 +89,7 @@ Toledo8217Protocol = ScaleProtocol(
 # Only the baudrate and label format seem to be configurable in the AZExtra series.
 ADAMEquipmentProtocol = ScaleProtocol(
     name='Adam Equipment',
-    baudrate=4800,
+    baudrate=19200,
     bytesize=serial.EIGHTBITS,
     stopbits=serial.STOPBITS_ONE,
     parity=serial.PARITY_NONE,
@@ -101,10 +101,10 @@ ADAMEquipmentProtocol = ScaleProtocol(
     commandTerminator=b"\r\n",
     commandDelay=0.2,
     weightDelay=0.5,
-    newWeightDelay=15,  # AZExtra beeps every time you ask for a weight that was previously returned!
+    newWeightDelay=5,  # AZExtra beeps every time you ask for a weight that was previously returned!
                        # Adding an extra delay gives the operator a chance to remove the products
                        # before the scale starts beeping. Could not find a way to disable the beeps.
-    weightCommand=b'',
+    weightCommand=b'P',
     zeroCommand=b'Z',
     tareCommand=b'T',
     clearCommand=None, # No clear command -> Tare again
@@ -119,10 +119,10 @@ SCALE_PROTOCOLS = (
 )
 
 class Scale(Thread):
-    def __init__(self):
+    def __init__(self, scalelock):
         Thread.__init__(self)
         self.lock = Lock()
-        self.scalelock = Lock()
+        self.scalelock = scalelock
         self.status = {'status':'connecting', 'messages':[]}
         self.input_dir = '/dev/serial/by-path/'
         self.weight = 0
@@ -336,6 +336,7 @@ class Scale(Thread):
         self.device = None
 
         while True:
+            _logger.debug("looping in scale thread")
             if self.device:
                 old_weight = self.weight
                 self.read_weight()
@@ -354,16 +355,28 @@ class Scale(Thread):
                     # retry later to support "plug and play"
                     time.sleep(10)
 
+scale_lock = Lock()
+scale_lock.acquire(True)
 scale_thread = None
 if serial:
-    scale_thread = Scale()
+    scale_thread = Scale(scale_lock)
     hw_proxy.drivers[DRIVER_NAME] = scale_thread
 
 class ScaleDriver(hw_proxy.Proxy):
     @http.route('/hw_proxy/scale_read/', type='json', auth='none', cors='*')
     def scale_read(self):
         if scale_thread:
-            return {'weight': scale_thread.get_weight(),
+            _logger.debug("releasing scale lock")
+            scale_lock.release()
+            _logger.debug("scale lock released")
+            _logger.debug("reading weight")
+            weight = scale_thread.get_weight()
+            _logger.debug("weight available")
+            _logger.debug("acquiring scale lock")
+            scale_lock.acquire()
+            _logger.debug("acquired scale lock")
+
+            return {'weight': weight,
                     'unit': 'kg',
                     'info': scale_thread.get_weight_info()}
         return None
