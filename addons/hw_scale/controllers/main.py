@@ -248,7 +248,7 @@ class Scale(Thread):
                             connection.timeout = protocol.timeout
                             connection.writeTimeout = protocol.writeTimeout
                             hw_proxy.rs232_devices[path] = DRIVER_NAME
-                            hw_proxy.rs232_event[path] = self.read_event
+                            hw_proxy.rs232_events[path] = self.read_event
                             return connection
 
                 self.set_status('disconnected', 'No supported RS-232 scale found')

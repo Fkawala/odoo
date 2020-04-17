@@ -61,7 +61,7 @@ class EscposDriver(Thread):
 
             def __call__(self, device):
                 if (device.idVendor, device.idProduct) in self.banned_devices:
-                    _logger.info("Igonring %s, %s because it belongs to"
+                    _logger.info("Igonring %s %s because it belongs to "
                                  "the list of banned devices",
                                  hex(device.idVendor),
                                  hex(device.idProduct))
