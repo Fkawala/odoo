@@ -32,8 +32,9 @@ drivers = {}
 
 # keep a list of RS-232 devices that have been recognized by a driver,
 # so other drivers can skip them during probes
-rs232_devices = {}  # {'/path/to/device': 'driver'}
-rs232_lock = Lock() # must be held to update `rs232_devices`
+rs232_devices = {}   # {'/path/to/device': 'driver'}
+rs232_lock = Lock()  # must be held to update `rs232_devices`
+rs232_events = {}   # {'/path/to/device': 'event}
 
 class Proxy(http.Controller):
 
@@ -41,6 +42,8 @@ class Proxy(http.Controller):
         statuses = {}
         for driver in drivers:
             statuses[driver] = drivers[driver].get_status()
+            if driver in rs232_events:
+                rs232_events[driver].clear()
         return statuses
 
     @http.route('/hw_proxy/hello', type='http', auth='none', cors='*')

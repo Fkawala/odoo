@@ -8,7 +8,7 @@ import time
 
 from collections import namedtuple
 from os import listdir
-from threading import Thread, Lock
+from threading import Thread, Lock, Event
 
 from odoo import http
 
@@ -119,10 +119,11 @@ SCALE_PROTOCOLS = (
 )
 
 class Scale(Thread):
-    def __init__(self, scalelock):
+    def __init__(self, event):
         Thread.__init__(self)
         self.lock = Lock()
-        self.scalelock = scalelock
+        self.scalelock = Lock()
+        self.read_event = event
         self.status = {'status':'connecting', 'messages':[]}
         self.input_dir = '/dev/serial/by-path/'
         self.weight = 0
@@ -247,6 +248,7 @@ class Scale(Thread):
                             connection.timeout = protocol.timeout
                             connection.writeTimeout = protocol.writeTimeout
                             hw_proxy.rs232_devices[path] = DRIVER_NAME
+                            hw_proxy.rs232_event[path] = self.read_event
                             return connection
 
                 self.set_status('disconnected', 'No supported RS-232 scale found')
@@ -271,6 +273,8 @@ class Scale(Thread):
         with self.scalelock:
             p = self.protocol
             try:
+                _logger.debug("Waiting for read event (%s)", self.read_event)
+                self.read_event.wait(3600)
                 self.device.write(p.weightCommand + p.commandTerminator)
                 time.sleep(p.commandDelay)
                 answer = self._get_raw_response(self.device)
@@ -355,30 +359,23 @@ class Scale(Thread):
                     # retry later to support "plug and play"
                     time.sleep(10)
 
-scale_lock = Lock()
-scale_lock.acquire(True)
+read_event = Event()
 scale_thread = None
 if serial:
-    scale_thread = Scale(scale_lock)
+    scale_thread = Scale(read_event)
     hw_proxy.drivers[DRIVER_NAME] = scale_thread
 
 class ScaleDriver(hw_proxy.Proxy):
     @http.route('/hw_proxy/scale_read/', type='json', auth='none', cors='*')
     def scale_read(self):
         if scale_thread:
-            _logger.debug("releasing scale lock")
-            scale_lock.release()
-            _logger.debug("scale lock released")
-            _logger.debug("reading weight")
+            read_event.set()
             weight = scale_thread.get_weight()
-            _logger.debug("weight available")
-            _logger.debug("acquiring scale lock")
-            scale_lock.acquire()
-            _logger.debug("acquired scale lock")
-
+            read_event.clear()
             return {'weight': weight,
                     'unit': 'kg',
                     'info': scale_thread.get_weight_info()}
+
         return None
 
     @http.route('/hw_proxy/scale_zero/', type='json', auth='none', cors='*')
